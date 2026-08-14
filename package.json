@@ -1,0 +1,15 @@
+{
+  "name": "whatsapp-supabase-sender",
+  "version": "1.0.0",
+  "description": "Automation script that reads pending contacts from Supabase and sends them WhatsApp messages via Puppeteer + WhatsApp Web.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "login": "node src/login.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "puppeteer": "^25.3.0"
+  }
+}
