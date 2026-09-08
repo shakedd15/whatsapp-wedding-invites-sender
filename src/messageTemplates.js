@@ -15,7 +15,7 @@ function buildGenderGreeting(fullName, gender) {
   const normalizedGender = normalizeGender(gender);
 
   if (normalizedGender === 'x') {
-    return { greeting: `${name} היקרים,`, invitePronoun: 'אתכם' };
+    return { greeting: `${name} יקרים,`, invitePronoun: 'אתכם' };
   }
   if (normalizedGender === 'm') {
     return { greeting: `${name} היקר,`, invitePronoun: 'אותך' };
@@ -38,7 +38,7 @@ function validateGuest({ fullName, id }) {
   return name;
 }
 
-const MESSAGE_SIGNATURE = ['נתראה  🤍', 'שקד ואיל'];
+const MESSAGE_SIGNATURE = ['נתראה  🤍', 'שקד דונל-לוי ואיל בק'];
 
 function buildInvitationMessage(guest, config) {
   const name = validateGuest(guest);
@@ -53,7 +53,7 @@ function buildInvitationMessage(guest, config) {
     '',
     ...MESSAGE_SIGNATURE,
     '',
-    'להזמנה ואישור הגעה לחצו  👇 ',
+    'לצפייה בהזמנה ואישור הגעה לחצו  👇 ',
   ].join('\n');
 
   return { textMessage, linkMessage: rsvpLink };
@@ -102,11 +102,11 @@ function buildDayOfMessage(guest, config) {
 
   const textMessage = [
     'משפחה יקרה, חברים אהובים, אנחנו כבר מתרגשים מאוד לקראת האירוע ומקווים שגם אתם! 🤍',
-    'ניפגש היום בלאגו - תל אביב בשעה 19:30.',
+    'ניפגש היום באיסט - תל אביב בשעה 19:30.',
     '',
     ...MESSAGE_SIGNATURE,
     '',
-    'לנוחיותכם ניתן להעניק מתנה גם דרך פייבוקס בקישור 👇',
+    'לנוחיותכם ניתן להעניק מתנה גם באשראי בקישור 👇',
   ].join('\n');
 
   return { textMessage, linkMessage: giftLink };

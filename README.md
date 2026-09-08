@@ -55,7 +55,7 @@ The actual invitation text is written in Hebrew (the guests are Hebrew speakers)
 
 | gender | greeting | second-person form |
 |---|---|---|
-| `x` (plural) | `{full_name} היקרים,` | `אתכם` |
+| `x` (plural) | `{full_name} יקרים,` | `אתכם` |
 | `m` (male) | `{full_name} היקר,` | `אותך` |
 | `f` (female) | `{full_name} היקרה,` | `אותך` |
 
@@ -64,7 +64,7 @@ For example, for a guest with `full_name: שקד ואיל`, `gender: x`, `id: 11
 Message 1:
 
 ```
-שקד ואיל היקרים,
+שקד ואיל יקרים,
 אנחנו מתרגשים במיוחד להזמין אתכם לחתונה שלנו!!!
 האירוע ייערך ביום שלישי 10/11/26 באיסט - east
 
