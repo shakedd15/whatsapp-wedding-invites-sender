@@ -15,7 +15,7 @@ function buildGenderGreeting(fullName, gender) {
   const normalizedGender = normalizeGender(gender);
 
   if (normalizedGender === 'x') {
-    return { greeting: `${name} היקרים,`, invitePronoun: 'אתכם' };
+    return { greeting: `${name} יקרים,`, invitePronoun: 'אתכם' };
   }
   if (normalizedGender === 'm') {
     return { greeting: `${name} היקר,`, invitePronoun: 'אותך' };
@@ -102,7 +102,7 @@ function buildDayOfMessage(guest, config) {
 
   const textMessage = [
     'משפחה יקרה, חברים אהובים, אנחנו כבר מתרגשים מאוד לקראת האירוע ומקווים שגם אתם! 🤍',
-    'ניפגש היום בלאגו - תל אביב בשעה 19:30.',
+    'ניפגש היום באיסט - תל אביב בשעה 19:30.',
     '',
     ...MESSAGE_SIGNATURE,
     '',

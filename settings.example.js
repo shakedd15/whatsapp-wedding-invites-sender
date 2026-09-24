@@ -37,4 +37,10 @@ module.exports = {
       maxMs: 90000,
     },
   },
+
+  sms019: {
+    username: 'your-019-username',
+    token: 'your-019-api-token',
+    source: 'your-approved-sender-name',
+  },
 };

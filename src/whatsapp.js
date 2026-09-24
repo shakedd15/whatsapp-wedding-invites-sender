@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const path = require('path');
+const { execFile } = require('child_process');
 const config = require('./config');
 
 const WHATSAPP_URL = 'https://web.whatsapp.com';
@@ -13,8 +14,8 @@ const MESSAGE_BOX_SELECTORS = [
   'div[data-testid="conversation-compose-box-input"]',
 ];
 
-const QR_CODE_SELECTOR = 'canvas[aria-label], div[data-ref] canvas';
-const CHAT_LIST_SELECTOR = 'div[aria-label="Chat list"], #pane-side';
+const QR_CODE_SELECTOR = 'div[data-ref] canvas, canvas[aria-label], [data-testid="qrcode"]';
+const CHAT_LIST_SELECTOR = '#pane-side, #side, div[aria-label="Chat list"], div[aria-label="רשימת הצ\'אטים"]';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,6 +25,75 @@ function randomDelay(minMs, maxMs) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
+function launchOptions(userDataDir) {
+  return {
+    // Installed Google Chrome. Puppeteer's own Chrome often leaves WhatsApp Web blank.
+    channel: 'chrome',
+    headless: config.whatsapp.headless,
+    userDataDir,
+    timeout: 20000,
+    // A fixed viewport makes Chrome report an empty brand list, and WhatsApp
+    // then refuses to load ("works with Google Chrome 100+").
+    defaultViewport: null,
+    ignoreDefaultArgs: ['--enable-automation'],
+    args: [
+      '--disable-notifications',
+      '--disable-blink-features=AutomationControlled',
+      '--window-position=40,40',
+      '--window-size=1280,900',
+      '--lang=he',
+    ],
+  };
+}
+
+async function applyChromeIdentity(page, browser) {
+  const versionText = await browser.version();
+  const match = versionText.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)/);
+  const full = match ? match[0] : '151.0.7922.140';
+  const major = match ? match[1] : '151';
+
+  await page.setUserAgent({
+    userAgent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`,
+    platform: 'Win32',
+    userAgentMetadata: {
+      brands: [
+        { brand: 'Chromium', version: major },
+        { brand: 'Google Chrome', version: major },
+        { brand: 'Not.A/Brand', version: '24' },
+      ],
+      fullVersionList: [
+        { brand: 'Chromium', version: full },
+        { brand: 'Google Chrome', version: full },
+        { brand: 'Not.A/Brand', version: '24.0.0.0' },
+      ],
+      fullVersion: full,
+      platform: 'Windows',
+      platformVersion: '15.0.0',
+      architecture: 'x86',
+      model: '',
+      mobile: false,
+      bitness: '64',
+      wow64: false,
+    },
+  });
+}
+
+/**
+ * A previous run stopped with Ctrl+C often leaves Chrome open on this
+ * profile. The next launch then waits forever for that profile lock.
+ */
+function stopLeftoverChrome(userDataDir) {
+  return new Promise((resolve) => {
+    const escaped = userDataDir.replace(/'/g, "''");
+    const command = `
+      Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" |
+        Where-Object { $_.CommandLine -like '*${escaped}*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    `;
+    execFile('powershell', ['-NoProfile', '-Command', command], { timeout: 20000 }, () => resolve());
+  });
+}
+
 /**
  * Launches Chromium with a persistent user data dir so WhatsApp Web stays
  * logged in between runs (no need to re-scan the QR code every time).
@@ -31,15 +101,64 @@ function randomDelay(minMs, maxMs) {
 async function launchBrowser() {
   const userDataDir = path.resolve(config.whatsapp.sessionDir);
 
-  const browser = await puppeteer.launch({
-    headless: config.whatsapp.headless,
-    userDataDir,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-notifications'],
-    defaultViewport: { width: 1280, height: 900 },
-  });
+  console.log('🌐 Launching browser...');
 
-  const [page] = await browser.pages();
-  await page.goto(WHATSAPP_URL, { waitUntil: 'networkidle2' });
+  let browser;
+  try {
+    browser = await puppeteer.launch(launchOptions(userDataDir));
+  } catch (err) {
+    console.warn(`⚠️  Browser did not open (${err.message}). Closing a leftover Chrome window and trying again...`);
+    await stopLeftoverChrome(userDataDir);
+    await sleep(1000);
+    browser = await puppeteer.launch(launchOptions(userDataDir));
+  }
+
+  console.log('🪟 Browser window opened. Loading WhatsApp Web...');
+
+  const pages = await browser.pages();
+  const page = pages[0] || (await browser.newPage());
+
+  try {
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    });
+    await applyChromeIdentity(page, browser);
+    await page.bringToFront();
+    // "load" and "networkidle" often never finish on WhatsApp Web.
+    await page.goto(WHATSAPP_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await sleep(2500);
+
+    const unsupported = await page.evaluate(() =>
+      (document.body?.innerText || '').includes('Google Chrome 100')
+    );
+    if (unsupported) {
+      console.log('⚠️  WhatsApp rejected the browser. Clearing the cached page and reloading...');
+      await page.evaluate(async () => {
+        const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+        await Promise.all(regs.map((reg) => reg.unregister()));
+      });
+      const client = await page.createCDPSession();
+      await client.send('Network.clearBrowserCache').catch(() => {});
+      await client.detach().catch(() => {});
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+      await sleep(2500);
+    }
+
+    const blank = await page.evaluate(() => (document.body?.innerText || '').trim().length < 20);
+    if (blank) {
+      console.log('⚠️  WhatsApp opened on a blank screen. Reloading...');
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+      await sleep(2500);
+    }
+
+    const preview = await page.evaluate(() =>
+      (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+    );
+    console.log(`📄 WhatsApp screen: ${preview || '(still empty)'}`);
+  } catch (err) {
+    await browser.close().catch(() => {});
+    throw err;
+  }
 
   return { browser, page };
 }
@@ -50,8 +169,10 @@ async function launchBrowser() {
  * (which happens once the user scans it on their phone).
  */
 async function waitForLogin(page, timeoutMs = 120000) {
+  console.log('⏳ Waiting for WhatsApp Web to finish loading...');
+
   const qrVisible = await page
-    .waitForSelector(QR_CODE_SELECTOR, { timeout: 5000 })
+    .waitForSelector(QR_CODE_SELECTOR, { timeout: 30000 })
     .then(() => true)
     .catch(() => false);
 
@@ -117,7 +238,7 @@ async function sendMessageToContact(page, phoneNumber, messages) {
   const messageList = Array.isArray(messages) ? messages : [messages];
 
   const url = `${WHATSAPP_URL}/send?phone=${encodeURIComponent(phoneNumber)}`;
-  await page.goto(url, { waitUntil: 'networkidle2' });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
   // WhatsApp shows a brief "loading chat" state before the compose box appears,
   // or an error toast if the number is invalid / not on WhatsApp.
