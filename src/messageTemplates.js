@@ -113,7 +113,7 @@ function buildDayOfMessage(guest, config) {
     '',
     ...MESSAGE_SIGNATURE,
     '',
-    'לנוחיותכם ניתן להעניק מתנה גם דרך פייבוקס בקישור 👇',
+    'לנוחיותכם ניתן להעניק מתנה גם בכרטיס אשראי או דרך פייבוקס בקישור 👇',
   ].join('\n');
 
   return { textMessage, linkMessage: giftLink };
