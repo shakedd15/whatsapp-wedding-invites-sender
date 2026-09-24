@@ -59,10 +59,17 @@ function buildInvitationMessage(guest, config) {
   return { textMessage, linkMessage: rsvpLink };
 }
 
+function appendRsvpFlag(link) {
+  if (/(?:[?&])rsvp=1(?:&|$)/.test(link)) {
+    return link;
+  }
+  return `${link}&rsvp=1`;
+}
+
 function buildRsvpReminderMessage(guest, config) {
   const name = validateGuest(guest);
   const { rsvpBaseUrl } = config.event;
-  const rsvpLink = `${rsvpBaseUrl}${guest.id}`;
+  const rsvpLink = appendRsvpFlag(`${rsvpBaseUrl}${guest.id}`);
 
   const textMessage = [
     `${name} ,`,
