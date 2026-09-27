@@ -346,13 +346,8 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
   return { sentCount, failedCount, totalPhones };
 }
 
-function pickNextBreakThreshold(randomDelay) {
-  const { everyMin, everyMax } = config.delays.longBreak;
-  return randomDelay(everyMin, everyMax);
-}
-
 async function sendWhatsAppJobs(jobs) {
-  const { launchBrowser, waitForLogin, sendMessageToContact, randomDelay, sleep: wait } = require('./src/whatsapp');
+  const { launchBrowser, waitForLogin, sendMessageToContact, waitBetweenWhatsAppGuests } = require('./src/whatsapp');
   const template = jobs.template;
   const totalMessages = jobs.list.reduce((sum, job) => sum + job.phones.length, 0);
 
@@ -360,8 +355,7 @@ async function sendWhatsAppJobs(jobs) {
   let sentCount = 0;
   let failedCount = 0;
   let messageIndex = 0;
-  let messagesSinceBreak = 0;
-  let nextBreakThreshold = pickNextBreakThreshold(randomDelay);
+  let guestIndex = 0;
 
   try {
     await waitForLogin(page);
@@ -383,27 +377,15 @@ async function sendWhatsAppJobs(jobs) {
           failedCount += 1;
           console.error(`❌ Failed to send to ${rawPhone} (${job.name}): ${err.message}`);
         }
-
-        const isLastMessage = messageIndex === totalMessages;
-        if (!isLastMessage) {
-          messagesSinceBreak += 1;
-
-          if (messagesSinceBreak >= nextBreakThreshold) {
-            const breakMs = randomDelay(config.delays.longBreak.minMs, config.delays.longBreak.maxMs);
-            console.log(`☕ Taking a longer break: ${(breakMs / 1000).toFixed(1)}s...`);
-            await wait(breakMs);
-            messagesSinceBreak = 0;
-            nextBreakThreshold = pickNextBreakThreshold(randomDelay);
-          } else {
-            const delayMs = randomDelay(config.delays.minMs, config.delays.maxMs);
-            console.log(`⏳ Waiting ${(delayMs / 1000).toFixed(1)}s before the next message...`);
-            await wait(delayMs);
-          }
-        }
       }
 
       if (template.markSent) {
         await markGuestSent(jobs.supabase, job.guest[idCol], guestSuccessCount);
+      }
+
+      guestIndex += 1;
+      if (guestIndex < jobs.list.length) {
+        await waitBetweenWhatsAppGuests(guestIndex, config);
       }
     }
   } finally {

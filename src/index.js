@@ -1,16 +1,11 @@
 const config = require('./config');
 const { getGuestsForTemplate, markGuestSent } = require('./supabaseClient');
-const { launchBrowser, waitForLogin, sendMessageToContact, randomDelay, sleep } = require('./whatsapp');
+const { launchBrowser, waitForLogin, sendMessageToContact, waitBetweenWhatsAppGuests } = require('./whatsapp');
 const { getMessageTemplates } = require('./messageTemplates');
 const { promptMessageChoice } = require('./promptMessageChoice');
 const { parsePhoneNumbers, normalizeIsraeliNumber } = require('./phoneUtils');
 
 const { id: idCol, fullName: nameCol, phone: phoneCol, gender: genderCol } = config.supabase.columns;
-
-function pickNextBreakThreshold() {
-  const { everyMin, everyMax } = config.delays.longBreak;
-  return randomDelay(everyMin, everyMax);
-}
 
 function validateTemplateConfig(template) {
   if (template.id === 'day-of' && !config.event.giftLink) {
@@ -78,8 +73,7 @@ async function main() {
   let sentCount = 0;
   let failedCount = 0;
   let messageIndex = 0;
-  let messagesSinceBreak = 0;
-  let nextBreakThreshold = pickNextBreakThreshold();
+  let guestIndex = 0;
 
   try {
     await waitForLogin(page);
@@ -104,27 +98,15 @@ async function main() {
           failedCount += 1;
           console.error(`❌ Failed to send to ${rawPhone} (${name}): ${err.message}`);
         }
-
-        const isLastMessage = messageIndex === totalMessages;
-        if (!isLastMessage) {
-          messagesSinceBreak += 1;
-
-          if (messagesSinceBreak >= nextBreakThreshold) {
-            const breakMs = randomDelay(config.delays.longBreak.minMs, config.delays.longBreak.maxMs);
-            console.log(`☕ Taking a longer break: ${(breakMs / 1000).toFixed(1)}s...`);
-            await sleep(breakMs);
-            messagesSinceBreak = 0;
-            nextBreakThreshold = pickNextBreakThreshold();
-          } else {
-            const delayMs = randomDelay(config.delays.minMs, config.delays.maxMs);
-            console.log(`⏳ Waiting ${(delayMs / 1000).toFixed(1)}s before the next message...`);
-            await sleep(delayMs);
-          }
-        }
       }
 
       if (template.markSent) {
         await markGuestSent(guest[idCol], guestSuccessCount);
+      }
+
+      guestIndex += 1;
+      if (guestIndex < jobs.length) {
+        await waitBetweenWhatsAppGuests(guestIndex, config);
       }
     }
   } finally {

@@ -26,15 +26,13 @@ module.exports = {
     headless: false,
   },
   delays: {
-    minMs: 15000,
-    maxMs: 30000,
+    minMs: 61000,
+    maxMs: 120000,
     typeMinMs: 40,
     typeMaxMs: 140,
-    longBreak: {
-      everyMin: 10,
-      everyMax: 15,
-      minMs: 30000,
-      maxMs: 90000,
+    hourlyBreak: {
+      everyGuests: 10,
+      durationMs: 3600000,
     },
   },
 

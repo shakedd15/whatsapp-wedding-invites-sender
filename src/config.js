@@ -44,15 +44,14 @@ const config = {
     headless: Boolean(settings.whatsapp?.headless),
   },
   delays: {
-    minMs: Number(settings.delays?.minMs || 15000),
-    maxMs: Number(settings.delays?.maxMs || 30000),
+    // WhatsApp only: random gap between guests (always above 1 minute)
+    minMs: Number(settings.delays?.minMs || 61000),
+    maxMs: Number(settings.delays?.maxMs || 120000),
     typeMinMs: Number(settings.delays?.typeMinMs || 40),
     typeMaxMs: Number(settings.delays?.typeMaxMs || 140),
-    longBreak: {
-      everyMin: Number(settings.delays?.longBreak?.everyMin || 10),
-      everyMax: Number(settings.delays?.longBreak?.everyMax || 15),
-      minMs: Number(settings.delays?.longBreak?.minMs || 30000),
-      maxMs: Number(settings.delays?.longBreak?.maxMs || 90000),
+    hourlyBreak: {
+      everyGuests: Number(settings.delays?.hourlyBreak?.everyGuests || 10),
+      durationMs: Number(settings.delays?.hourlyBreak?.durationMs || 3600000),
     },
   },
 };

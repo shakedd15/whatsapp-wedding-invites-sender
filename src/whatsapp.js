@@ -14,7 +14,8 @@ const MESSAGE_BOX_SELECTORS = [
   'div[data-testid="conversation-compose-box-input"]',
 ];
 
-const QR_CODE_SELECTOR = 'div[data-ref] canvas, canvas[aria-label], [data-testid="qrcode"]';
+// Avoid bare canvas[aria-label] — it false-triggers on promo/graphics without a scannable QR.
+const QR_CODE_SELECTOR = 'div[data-ref] canvas, [data-testid="qrcode"]';
 const CHAT_LIST_SELECTOR = '#pane-side, #side, div[aria-label="Chat list"], div[aria-label="רשימת הצ\'אטים"]';
 
 function sleep(ms) {
@@ -155,12 +156,94 @@ async function launchBrowser() {
       (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120)
     );
     console.log(`📄 WhatsApp screen: ${preview || '(still empty)'}`);
+
+    if (/Download WhatsApp for Windows/i.test(preview)) {
+      console.log('⚠️  WhatsApp is showing the desktop-app promo. Trying to open the web login screen...');
+      await tryShowQrLogin(page);
+      await sleep(2000);
+    }
   } catch (err) {
     await browser.close().catch(() => {});
     throw err;
   }
 
   return { browser, page };
+}
+
+async function isScannableQrVisible(page) {
+  return page.evaluate(() => {
+    const canvas =
+      document.querySelector('div[data-ref] canvas') ||
+      document.querySelector('[data-testid="qrcode"] canvas') ||
+      document.querySelector('[data-testid="qrcode"]');
+    if (!canvas) {
+      return false;
+    }
+    const rect = canvas.getBoundingClientRect();
+    return rect.width >= 120 && rect.height >= 120 && rect.bottom > 0 && rect.right > 0;
+  });
+}
+
+/**
+ * WhatsApp sometimes opens phone-login or a "Download for Windows" upsell instead
+ * of the QR screen. Click through common entry points when we can find them.
+ */
+async function tryShowQrLogin(page) {
+  const clicked = await page.evaluate(() => {
+    const isClickable = (el) => {
+      if (!el || el.disabled) {
+        return false;
+      }
+      const tag = el.tagName;
+      return tag === 'BUTTON' || tag === 'A' || el.getAttribute('role') === 'button' || el.getAttribute('role') === 'tab';
+    };
+
+    const labels = [...document.querySelectorAll('button, a, div[role="tab"], div[role="button"], span')];
+    const patterns = [
+      /QR code/i,
+      /קוד\s*QR/i,
+      /סרוק/i,
+      /Link with QR/i,
+      /WhatsApp Web/i,
+      /continue to WhatsApp Web/i,
+      /use WhatsApp Web/i,
+    ];
+
+    for (const pattern of patterns) {
+      for (const el of labels) {
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text || text.length > 80 || !pattern.test(text)) {
+          continue;
+        }
+        const target = isClickable(el) ? el : el.closest('button, a, [role="button"], [role="tab"]');
+        if (target && isClickable(target)) {
+          target.click();
+          return text;
+        }
+      }
+    }
+    return null;
+  });
+
+  if (clicked) {
+    console.log(`↪️  Opened login option: "${clicked.slice(0, 60)}"`);
+    await sleep(2500);
+  }
+  return clicked;
+}
+
+async function waitForScannableQr(page, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (await isScannableQrVisible(page)) {
+      return true;
+    }
+    await tryShowQrLogin(page);
+    await sleep(1500);
+  }
+
+  return false;
 }
 
 /**
@@ -170,14 +253,29 @@ async function launchBrowser() {
  */
 async function waitForLogin(page, timeoutMs = 120000) {
   console.log('⏳ Waiting for WhatsApp Web to finish loading...');
+  await page.bringToFront();
 
-  const qrVisible = await page
-    .waitForSelector(QR_CODE_SELECTOR, { timeout: 30000 })
-    .then(() => true)
-    .catch(() => false);
+  const alreadyLoggedIn = await page.$(CHAT_LIST_SELECTOR).catch(() => null);
+  if (alreadyLoggedIn) {
+    console.log('✅ Already logged in to WhatsApp Web.');
+    return;
+  }
 
-  if (qrVisible) {
-    console.log('📱 QR code found. Please scan it with your phone to log in...');
+  const qrReady = await waitForScannableQr(page, 45000);
+
+  if (qrReady) {
+    await page.bringToFront();
+    console.log('📱 QR code is visible in the Chrome window.');
+    console.log('   On your phone: WhatsApp → Linked devices → Link a device → scan the code.');
+    console.log('   Keep the browser window open until login completes.');
+  } else {
+    const preview = await page.evaluate(() =>
+      (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 200)
+    );
+    console.warn('⚠️  No scannable QR detected on screen yet.');
+    console.warn(`   Screen text: ${preview || '(empty)'}`);
+    console.warn('   Check the Chrome window that opened. If you see "Download WhatsApp for Windows", click through to web login.');
+    console.warn('   For login only, run: npm run login (with whatsapp.headless: false in settings.js).');
   }
 
   await page.waitForSelector(CHAT_LIST_SELECTOR, { timeout: timeoutMs });
@@ -275,10 +373,34 @@ async function sendMessageToContact(page, phoneNumber, messages) {
   }
 }
 
+const WHATSAPP_MIN_GUEST_GAP_MS = 60001;
+
+/**
+ * Pause between WhatsApp guests (not between multiple numbers on the same guest).
+ * Regular gap is a random duration above one minute; every N guests triggers a long break.
+ */
+async function waitBetweenWhatsAppGuests(guestsCompleted, config) {
+  const minMs = Math.max(Number(config.delays?.minMs || WHATSAPP_MIN_GUEST_GAP_MS), WHATSAPP_MIN_GUEST_GAP_MS);
+  const maxMs = Math.max(Number(config.delays?.maxMs || minMs + 30000), minMs + 1);
+  const everyGuests = Number(config.delays?.hourlyBreak?.everyGuests || 10);
+  const hourMs = Number(config.delays?.hourlyBreak?.durationMs || 3600000);
+
+  if (guestsCompleted > 0 && guestsCompleted % everyGuests === 0) {
+    console.log(`🕐 Reached ${guestsCompleted} guest(s). Pausing for ${(hourMs / 3600000).toFixed(1)} hour(s)...`);
+    await sleep(hourMs);
+    return;
+  }
+
+  const delayMs = randomDelay(minMs, maxMs);
+  console.log(`⏳ Waiting ${(delayMs / 1000).toFixed(1)}s before the next guest...`);
+  await sleep(delayMs);
+}
+
 module.exports = {
   launchBrowser,
   waitForLogin,
   sendMessageToContact,
+  waitBetweenWhatsAppGuests,
   randomDelay,
   sleep,
 };
