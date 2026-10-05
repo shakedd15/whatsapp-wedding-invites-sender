@@ -102,6 +102,9 @@ async function main() {
 
       if (template.markSent) {
         await markGuestSent(guest[idCol], guestSuccessCount);
+      } else if (template.incrementSmsCount && guestSuccessCount > 0) {
+        const currentCount = Number(guest[config.supabase.columns.smsCount] || 0);
+        await markGuestSent(guest[idCol], currentCount + guestSuccessCount);
       }
 
       guestIndex += 1;

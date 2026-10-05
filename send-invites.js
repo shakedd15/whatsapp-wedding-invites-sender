@@ -175,6 +175,9 @@ async function fetchGuests(supabase, template) {
   if (template.id === 'invitation') {
     query = query.eq(columns.smsCount, 0);
   }
+  if (template.id === 'rsvp-reminder') {
+    query = query.lt(columns.smsCount, 2);
+  }
 
   const { data, error } = await query;
   if (error) {
@@ -338,8 +341,13 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
       }
     }
 
-    if (!testMode && template.markSent) {
-      await markGuestSent(supabase, job.guest[idCol], guestSuccessCount);
+    if (!testMode && guestSuccessCount > 0) {
+      const currentCount = Number(job.guest[config.supabase.columns.smsCount] || 0);
+      if (template.markSent) {
+        await markGuestSent(supabase, job.guest[idCol], guestSuccessCount);
+      } else if (template.incrementSmsCount) {
+        await markGuestSent(supabase, job.guest[idCol], currentCount + guestSuccessCount);
+      }
     }
   }
 
@@ -379,8 +387,13 @@ async function sendWhatsAppJobs(jobs) {
         }
       }
 
-      if (template.markSent) {
-        await markGuestSent(jobs.supabase, job.guest[idCol], guestSuccessCount);
+      if (guestSuccessCount > 0) {
+        const currentCount = Number(job.guest[config.supabase.columns.smsCount] || 0);
+        if (template.markSent) {
+          await markGuestSent(jobs.supabase, job.guest[idCol], guestSuccessCount);
+        } else if (template.incrementSmsCount) {
+          await markGuestSent(jobs.supabase, job.guest[idCol], currentCount + guestSuccessCount);
+        }
       }
 
       guestIndex += 1;

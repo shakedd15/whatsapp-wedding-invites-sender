@@ -133,13 +133,16 @@ const MESSAGE_TEMPLATES = [
   },
   {
     id: 'rsvp-reminder',
-    label: 'RSVP reminder (guests_amount_arriving = 0)',
+    label: 'RSVP reminder (guests_amount_arriving = 0, sms_count < 2)',
     description:
-      'Gentle nudge to complete RSVP and confirm how many guests are coming. Sent only to guests who have not confirmed yet.',
+      'Gentle nudge to complete RSVP. Sent to guests who have not confirmed yet and received fewer than 2 messages (sms_count 0 or 1).',
     matchesGuest(guest, columns) {
-      return getArrivingCount(guest, columns.guestsAmountArriving) === 0;
+      const notConfirmed = getArrivingCount(guest, columns.guestsAmountArriving) === 0;
+      const fewMessagesSent = Number(guest[columns.smsCount] || 0) < 2;
+      return notConfirmed && fewMessagesSent;
     },
     markSent: false,
+    incrementSmsCount: true,
     buildMessage: buildRsvpReminderMessage,
   },
   {
@@ -151,6 +154,7 @@ const MESSAGE_TEMPLATES = [
       return getArrivingCount(guest, columns.guestsAmountArriving) >= 0;
     },
     markSent: false,
+    incrementSmsCount: true,
     buildMessage: buildCountdownMessage,
   },
   {
@@ -162,6 +166,7 @@ const MESSAGE_TEMPLATES = [
       return getArrivingCount(guest, columns.guestsAmountArriving) > 0;
     },
     markSent: false,
+    incrementSmsCount: true,
     buildMessage: buildDayOfMessage,
   },
 ];

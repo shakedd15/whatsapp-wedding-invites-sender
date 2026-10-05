@@ -30,6 +30,9 @@ async function getGuestsForTemplate(template) {
   if (template.id === 'invitation') {
     query = query.eq(columns.smsCount, 0);
   }
+  if (template.id === 'rsvp-reminder') {
+    query = query.lt(columns.smsCount, 2);
+  }
 
   const { data, error } = await query;
 
