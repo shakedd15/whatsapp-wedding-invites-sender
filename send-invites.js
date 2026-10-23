@@ -16,6 +16,12 @@ const { createClient } = require('@supabase/supabase-js');
 const config = require('./src/config');
 const { getMessageTemplates } = require('./src/messageTemplates');
 const { parsePhoneNumbers, normalizeIsraeliNumber } = require('./src/phoneUtils');
+const {
+  sortCountdownJobs,
+  logCountdownOrder,
+  waitUntilCountdownStart,
+  countdownBatchPauseMs,
+} = require('./src/countdownRun');
 
 const settings = require('./settings');
 
@@ -282,6 +288,7 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
   let sentCount = 0;
   let failedCount = 0;
   let phoneIndex = 0;
+  let guestIndex = 0;
 
   if (testMode) {
     const contact = jobsToSend[0];
@@ -349,6 +356,16 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
         await markGuestSent(supabase, job.guest[idCol], currentCount + guestSuccessCount);
       }
     }
+
+    guestIndex += 1;
+    if (!testMode && template.id === 'countdown' && guestIndex < jobsToSend.length) {
+      const batchMs = countdownBatchPauseMs(guestIndex);
+      if (batchMs > 0) {
+        const hours = batchMs / (60 * 60 * 1000);
+        console.log(`🕐 Reached ${guestIndex} guest(s). Pausing for ${hours} hour(s)...`);
+        await sleep(batchMs);
+      }
+    }
   }
 
   return { sentCount, failedCount, totalPhones };
@@ -398,7 +415,9 @@ async function sendWhatsAppJobs(jobs) {
 
       guestIndex += 1;
       if (guestIndex < jobs.list.length) {
-        await waitBetweenWhatsAppGuests(guestIndex, config);
+        await waitBetweenWhatsAppGuests(guestIndex, config, {
+          countdownBatches: template.id === 'countdown',
+        });
       }
     }
   } finally {
@@ -442,16 +461,25 @@ async function main() {
   const supabase = createSupabase();
   console.log(`\n🔎 Loading guests for: ${template.label}...`);
   const guests = await fetchGuests(supabase, template);
-  const jobs = buildJobs(guests, template);
+  let jobs = buildJobs(guests, template);
 
   if (jobs.length === 0) {
     console.log('No matching guests to message.');
     return;
   }
 
+  if (template.id === 'countdown') {
+    jobs = sortCountdownJobs(jobs, config.supabase.columns.guestsAmountArriving);
+    logCountdownOrder(jobs, config.supabase.columns.guestsAmountArriving);
+  }
+
   const totalPhones = jobs.reduce((sum, job) => sum + job.phones.length, 0);
   console.log(`📋 Found ${jobs.length} guest(s), ${totalPhones} phone number(s).`);
   console.log('Each number gets two messages: the template text, then the personal link.');
+
+  if (template.id === 'countdown' && !testMode) {
+    await waitUntilCountdownStart();
+  }
 
   const summary =
     channel === 'sms'

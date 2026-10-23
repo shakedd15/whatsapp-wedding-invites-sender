@@ -87,6 +87,9 @@ function buildRsvpReminderMessage(guest, config) {
 function buildCountdownMessage(guest, config) {
   const name = validateGuest(guest);
   const { greeting } = buildGenderGreeting(name, guest.gender);
+  const isPlural = normalizeGender(guest.gender) === 'x';
+  const replyTo = isPlural ? 'אליכם' : 'אליך';
+  const hasForYou = isPlural ? 'לכם' : 'לך';
   const { dayName, date, venueText, rsvpBaseUrl } = config.event;
   const rsvpLink = `${rsvpBaseUrl}${guest.id}`;
 
@@ -94,6 +97,9 @@ function buildCountdownMessage(guest, config) {
     greeting,
     'זה כבר ממש מתקרב! 💍',
     `מחכים לחגוג איתכם ביום ${dayName} • ${date} • ${venueText}`,
+    '',
+    `אם יש בעיה כלשהי, ניתן להשיב למספר זה את כמות המגיעים ואנו נחזור ${replyTo}.`,
+    `בנוסף- מבקשים שתעדכנו אותנו כאן במידה ויש ${hasForYou} רגישות או אלרגיה 3>`,
     '',
     ...MESSAGE_SIGNATURE,
     '',

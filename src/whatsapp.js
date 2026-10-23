@@ -379,16 +379,28 @@ const WHATSAPP_MIN_GUEST_GAP_MS = 60001;
  * Pause between WhatsApp guests (not between multiple numbers on the same guest).
  * Regular gap is a random duration above one minute; every N guests triggers a long break.
  */
-async function waitBetweenWhatsAppGuests(guestsCompleted, config) {
+async function waitBetweenWhatsAppGuests(guestsCompleted, config, options = {}) {
   const minMs = Math.max(Number(config.delays?.minMs || WHATSAPP_MIN_GUEST_GAP_MS), WHATSAPP_MIN_GUEST_GAP_MS);
   const maxMs = Math.max(Number(config.delays?.maxMs || minMs + 30000), minMs + 1);
-  const everyGuests = Number(config.delays?.hourlyBreak?.everyGuests || 10);
-  const hourMs = Number(config.delays?.hourlyBreak?.durationMs || 3600000);
 
-  if (guestsCompleted > 0 && guestsCompleted % everyGuests === 0) {
-    console.log(`🕐 Reached ${guestsCompleted} guest(s). Pausing for ${(hourMs / 3600000).toFixed(1)} hour(s)...`);
-    await sleep(hourMs);
-    return;
+  if (options.countdownBatches) {
+    const { countdownBatchPauseMs } = require('./countdownRun');
+    const batchMs = countdownBatchPauseMs(guestsCompleted);
+    if (batchMs > 0) {
+      const hours = batchMs / (60 * 60 * 1000);
+      console.log(`🕐 Reached ${guestsCompleted} guest(s). Pausing for ${hours} hour(s)...`);
+      await sleep(batchMs);
+      return;
+    }
+  } else {
+    const everyGuests = Number(config.delays?.hourlyBreak?.everyGuests || 10);
+    const hourMs = Number(config.delays?.hourlyBreak?.durationMs || 3600000);
+
+    if (guestsCompleted > 0 && guestsCompleted % everyGuests === 0) {
+      console.log(`🕐 Reached ${guestsCompleted} guest(s). Pausing for ${(hourMs / 3600000).toFixed(1)} hour(s)...`);
+      await sleep(hourMs);
+      return;
+    }
   }
 
   const delayMs = randomDelay(minMs, maxMs);

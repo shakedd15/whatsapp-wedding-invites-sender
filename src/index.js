@@ -2,6 +2,7 @@ const config = require('./config');
 const { getGuestsForTemplate, markGuestSent } = require('./supabaseClient');
 const { launchBrowser, waitForLogin, sendMessageToContact, waitBetweenWhatsAppGuests } = require('./whatsapp');
 const { getMessageTemplates } = require('./messageTemplates');
+const { sortCountdownJobs, logCountdownOrder, waitUntilCountdownStart } = require('./countdownRun');
 const { promptMessageChoice } = require('./promptMessageChoice');
 const { parsePhoneNumbers, normalizeIsraeliNumber } = require('./phoneUtils');
 
@@ -58,15 +59,24 @@ async function main() {
 
   console.log(`\n🔎 Loading guests for: ${template.label}...`);
   const guests = await getGuestsForTemplate(template);
-  const jobs = buildJobs(guests, template);
+  let jobs = buildJobs(guests, template);
 
   if (jobs.length === 0) {
     console.log('No matching guests to message. 🎉');
     return;
   }
 
+  if (template.id === 'countdown') {
+    jobs = sortCountdownJobs(jobs, config.supabase.columns.guestsAmountArriving);
+    logCountdownOrder(jobs, config.supabase.columns.guestsAmountArriving);
+  }
+
   const totalMessages = jobs.reduce((sum, job) => sum + job.phones.length, 0);
   console.log(`📋 Found ${jobs.length} guest(s) with ${totalMessages} message(s) to send.`);
+
+  if (template.id === 'countdown') {
+    await waitUntilCountdownStart();
+  }
 
   const { browser, page } = await launchBrowser();
 
@@ -109,7 +119,9 @@ async function main() {
 
       guestIndex += 1;
       if (guestIndex < jobs.length) {
-        await waitBetweenWhatsAppGuests(guestIndex, config);
+        await waitBetweenWhatsAppGuests(guestIndex, config, {
+          countdownBatches: template.id === 'countdown',
+        });
       }
     }
   } finally {
