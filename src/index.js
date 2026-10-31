@@ -1,8 +1,8 @@
 const config = require('./config');
-const { getGuestsForTemplate, markGuestSent } = require('./supabaseClient');
+const { getGuestsForTemplate, markGuestSent, markGuestInvalid } = require('./supabaseClient');
 const { launchBrowser, waitForLogin, sendMessageToContact, waitBetweenWhatsAppGuests } = require('./whatsapp');
 const { getMessageTemplates } = require('./messageTemplates');
-const { sortCountdownJobs, logCountdownOrder, waitUntilCountdownStart } = require('./countdownRun');
+const { waitUntilCountdownStart, waitUntilReminderStart, waitUntilSendWindow } = require('./countdownRun');
 const { promptMessageChoice } = require('./promptMessageChoice');
 const { parsePhoneNumbers, normalizeIsraeliNumber } = require('./phoneUtils');
 
@@ -59,16 +59,11 @@ async function main() {
 
   console.log(`\n🔎 Loading guests for: ${template.label}...`);
   const guests = await getGuestsForTemplate(template);
-  let jobs = buildJobs(guests, template);
+  const jobs = buildJobs(guests, template);
 
   if (jobs.length === 0) {
     console.log('No matching guests to message. 🎉');
     return;
-  }
-
-  if (template.id === 'countdown') {
-    jobs = sortCountdownJobs(jobs, config.supabase.columns.guestsAmountArriving);
-    logCountdownOrder(jobs, config.supabase.columns.guestsAmountArriving);
   }
 
   const totalMessages = jobs.reduce((sum, job) => sum + job.phones.length, 0);
@@ -76,6 +71,11 @@ async function main() {
 
   if (template.id === 'countdown') {
     await waitUntilCountdownStart();
+    await waitUntilSendWindow();
+  }
+  if (template.id === 'rsvp-reminder') {
+    await waitUntilReminderStart();
+    await waitUntilSendWindow();
   }
 
   const { browser, page } = await launchBrowser();
@@ -89,9 +89,14 @@ async function main() {
     await waitForLogin(page);
 
     for (const job of jobs) {
+      if (template.id === 'countdown' || template.id === 'rsvp-reminder') {
+        await waitUntilSendWindow();
+      }
+
       const { guest, phones, messageParts } = job;
       const name = guest[nameCol];
       let guestSuccessCount = 0;
+      let guestFailed = false;
 
       for (const rawPhone of phones) {
         messageIndex += 1;
@@ -105,9 +110,15 @@ async function main() {
           sentCount += 1;
           console.log(`✅ Sent to ${rawPhone}.`);
         } catch (err) {
+          guestFailed = true;
           failedCount += 1;
           console.error(`❌ Failed to send to ${rawPhone} (${name}): ${err.message}`);
         }
+      }
+
+      if (guestFailed) {
+        await markGuestInvalid(guest[idCol]);
+        console.log(`Marked ${name} as invalid (guests_amount_arriving = -2).`);
       }
 
       if (template.markSent) {

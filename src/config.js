@@ -30,6 +30,7 @@ const config = {
       gender: settings.supabase?.columns?.gender || 'gender',
       smsCount: settings.supabase?.columns?.smsCount || 'sms_count',
       guestsAmountArriving: settings.supabase?.columns?.guestsAmountArriving || 'guests_amount_arriving',
+      guestDetails: settings.supabase?.columns?.guestDetails || 'guest_details',
     },
   },
   event: {

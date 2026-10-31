@@ -15,6 +15,7 @@ function getGuestSelectColumns() {
     columns.gender,
     columns.smsCount,
     columns.guestsAmountArriving,
+    columns.guestDetails,
   ].join(', ');
 }
 
@@ -31,7 +32,7 @@ async function getGuestsForTemplate(template) {
     query = query.eq(columns.smsCount, 0);
   }
   if (template.id === 'rsvp-reminder') {
-    query = query.lt(columns.smsCount, 2);
+    query = query.gt(columns.smsCount, 0);
   }
 
   const { data, error } = await query;
@@ -59,4 +60,15 @@ async function markGuestSent(guestId, successCount) {
   }
 }
 
-module.exports = { supabase, getGuestsForTemplate, markGuestSent };
+async function markGuestInvalid(guestId) {
+  const { error } = await supabase
+    .from(table)
+    .update({ [columns.guestsAmountArriving]: -2 })
+    .eq(columns.id, guestId);
+
+  if (error) {
+    throw new Error(`Failed to mark guest ${guestId} as invalid: ${error.message}`);
+  }
+}
+
+module.exports = { supabase, getGuestsForTemplate, markGuestSent, markGuestInvalid };

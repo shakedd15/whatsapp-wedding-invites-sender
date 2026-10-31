@@ -17,9 +17,9 @@ const config = require('./src/config');
 const { getMessageTemplates } = require('./src/messageTemplates');
 const { parsePhoneNumbers, normalizeIsraeliNumber } = require('./src/phoneUtils');
 const {
-  sortCountdownJobs,
-  logCountdownOrder,
   waitUntilCountdownStart,
+  waitUntilReminderStart,
+  waitUntilSendWindow,
   countdownBatchPauseMs,
 } = require('./src/countdownRun');
 
@@ -175,6 +175,7 @@ async function fetchGuests(supabase, template) {
     columns.gender,
     columns.smsCount,
     columns.guestsAmountArriving,
+    columns.guestDetails,
   ].join(', ');
 
   let query = supabase.from(table).select(select);
@@ -182,7 +183,7 @@ async function fetchGuests(supabase, template) {
     query = query.eq(columns.smsCount, 0);
   }
   if (template.id === 'rsvp-reminder') {
-    query = query.lt(columns.smsCount, 2);
+    query = query.gt(columns.smsCount, 0);
   }
 
   const { data, error } = await query;
@@ -191,6 +192,18 @@ async function fetchGuests(supabase, template) {
   }
 
   return data || [];
+}
+
+async function markGuestInvalid(supabase, guestId) {
+  const { table, columns } = config.supabase;
+  const { error } = await supabase
+    .from(table)
+    .update({ [columns.guestsAmountArriving]: -2 })
+    .eq(columns.id, guestId);
+
+  if (error) {
+    throw new Error(`Failed to mark guest ${guestId} as invalid: ${error.message}`);
+  }
 }
 
 async function markGuestSent(supabase, guestId, successCount) {
@@ -305,7 +318,12 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
   }
 
   for (const job of jobsToSend) {
+    if (!testMode && template.id === 'countdown') {
+      await waitUntilSendWindow();
+    }
+
     let guestSuccessCount = 0;
+    let guestFailed = false;
 
     for (const rawPhone of job.phones) {
       phoneIndex += 1;
@@ -329,6 +347,7 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
           );
         } catch (err) {
           phoneOk = false;
+          guestFailed = true;
           console.error(`❌ Failed ${partLabel} to ${phone} (${job.name}): ${err.message}`);
         }
 
@@ -346,6 +365,11 @@ async function sendSmsJobs(jobs, template, supabase, testMode) {
       } else {
         failedCount += 1;
       }
+    }
+
+    if (!testMode && guestFailed) {
+      await markGuestInvalid(supabase, job.guest[idCol]);
+      console.log(`Marked ${job.name} as invalid (guests_amount_arriving = -2).`);
     }
 
     if (!testMode && guestSuccessCount > 0) {
@@ -386,7 +410,12 @@ async function sendWhatsAppJobs(jobs) {
     await waitForLogin(page);
 
     for (const job of jobs.list) {
+      if (template.id === 'countdown' || template.id === 'rsvp-reminder') {
+        await waitUntilSendWindow();
+      }
+
       let guestSuccessCount = 0;
+      let guestFailed = false;
 
       for (const rawPhone of job.phones) {
         messageIndex += 1;
@@ -399,9 +428,15 @@ async function sendWhatsAppJobs(jobs) {
           sentCount += 1;
           console.log(`✅ Sent to ${rawPhone}.`);
         } catch (err) {
+          guestFailed = true;
           failedCount += 1;
           console.error(`❌ Failed to send to ${rawPhone} (${job.name}): ${err.message}`);
         }
+      }
+
+      if (guestFailed) {
+        await markGuestInvalid(jobs.supabase, job.guest[idCol]);
+        console.log(`Marked ${job.name} as invalid (guests_amount_arriving = -2).`);
       }
 
       if (guestSuccessCount > 0) {
@@ -461,16 +496,11 @@ async function main() {
   const supabase = createSupabase();
   console.log(`\n🔎 Loading guests for: ${template.label}...`);
   const guests = await fetchGuests(supabase, template);
-  let jobs = buildJobs(guests, template);
+  const jobs = buildJobs(guests, template);
 
   if (jobs.length === 0) {
     console.log('No matching guests to message.');
     return;
-  }
-
-  if (template.id === 'countdown') {
-    jobs = sortCountdownJobs(jobs, config.supabase.columns.guestsAmountArriving);
-    logCountdownOrder(jobs, config.supabase.columns.guestsAmountArriving);
   }
 
   const totalPhones = jobs.reduce((sum, job) => sum + job.phones.length, 0);
@@ -479,6 +509,11 @@ async function main() {
 
   if (template.id === 'countdown' && !testMode) {
     await waitUntilCountdownStart();
+    await waitUntilSendWindow();
+  }
+  if (channel === 'whatsapp' && template.id === 'rsvp-reminder') {
+    await waitUntilReminderStart();
+    await waitUntilSendWindow();
   }
 
   const summary =

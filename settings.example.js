@@ -12,6 +12,7 @@ module.exports = {
       gender: 'gender',
       smsCount: 'sms_count',
       guestsAmountArriving: 'guests_amount_arriving',
+      guestDetails: 'guest_details',
     },
   },
   event: {

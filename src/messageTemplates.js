@@ -130,22 +130,24 @@ const MESSAGE_TEMPLATES = [
     id: 'invitation',
     label: 'Initial invitation (sms_count = 0)',
     description:
-      'First-time wedding invite with event details + RSVP link. Sent only to guests who have never been messaged.',
+      'First-time wedding invite with event details + RSVP link. Sent only to guests who have never been messaged. Guests marked invalid (arriving = -2) are skipped until their phone is corrected.',
     matchesGuest(guest, columns) {
-      return Number(guest[columns.smsCount] || 0) === 0;
+      const neverMessaged = Number(guest[columns.smsCount] || 0) === 0;
+      const invalidPhone = getArrivingCount(guest, columns.guestsAmountArriving) === -2;
+      return neverMessaged && !invalidPhone;
     },
     markSent: true,
     buildMessage: buildInvitationMessage,
   },
   {
     id: 'rsvp-reminder',
-    label: 'RSVP reminder (guests_amount_arriving = 0, sms_count < 2)',
+    label: 'RSVP reminder (guests_amount_arriving = 0, sms_count > 0)',
     description:
-      'Gentle nudge to complete RSVP. Sent to guests who have not confirmed yet and received fewer than 2 messages (sms_count 0 or 1).',
+      'Gentle nudge to complete RSVP. Sent to guests who have not confirmed yet and have already been messaged at least once. WhatsApp sends start Sunday morning and stay between 09:00 and 21:00.',
     matchesGuest(guest, columns) {
       const notConfirmed = getArrivingCount(guest, columns.guestsAmountArriving) === 0;
-      const fewMessagesSent = Number(guest[columns.smsCount] || 0) < 2;
-      return notConfirmed && fewMessagesSent;
+      const alreadyMessaged = Number(guest[columns.smsCount] || 0) > 0;
+      return notConfirmed && alreadyMessaged;
     },
     markSent: false,
     incrementSmsCount: true,
@@ -153,11 +155,13 @@ const MESSAGE_TEMPLATES = [
   },
   {
     id: 'countdown',
-    label: 'Countdown message (guests_amount_arriving >= 0)',
+    label: 'Countdown message (arriving > 0, guest_details != finish)',
     description:
-      '"It\'s almost here!" excitement message with event date/venue + RSVP link. Sent to all guests (including those who haven\'t confirmed).',
+      'Sent between 09:00 and 21:00 to guests who confirmed they are coming, excluding guest_details = finish.',
     matchesGuest(guest, columns) {
-      return getArrivingCount(guest, columns.guestsAmountArriving) >= 0;
+      const arriving = getArrivingCount(guest, columns.guestsAmountArriving);
+      const finished = String(guest[columns.guestDetails] || '').trim().toLowerCase() === 'finish';
+      return arriving > 0 && !finished;
     },
     markSent: false,
     incrementSmsCount: true,
